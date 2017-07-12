@@ -1,0 +1,7 @@
+src/**/*.cpp
+test/**/*.cpp
+app/**/*.cpp
+.stack-work
+data/
+core.*
+.DS_Store
