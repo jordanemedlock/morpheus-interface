@@ -1,18 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
-
 module Morpheus where
+
+
 import           Network.HTTP.Simple (httpNoBody)
 import           Data.Aeson
-import           System.FilePath.Posix
 import           Network.HTTP.Client hiding (httpNoBody)
 import           Network.HTTP.Types.Status (statusCode)
-import           Data.Char
+import           Data.Text as T
+import           Data.Text.IO as T
+import           Data.Monoid
 
-data MorpheusConfig = MorpheusConfig { playerAddress :: String
+data MorpheusConfig = MorpheusConfig { playerAddress :: Text
                                      , playerPort :: Int
+                                     , playerDebug :: Bool
                                      } deriving Show
 
-defaultConfig = MorpheusConfig "localhost" 3005
+defaultConfig = MorpheusConfig "localhost" 3005 True
 
 data Command  = Navigation { navigationCommand :: NavigationCommand }
               | JSONRPC { jsonRequest :: JSONRequest }
@@ -40,26 +43,40 @@ instance ToJSON JSONRequest where
            , "params" .= params
            , "id" .= id
            ]
-  
+           
+lowerFirst :: Text -> Text
+lowerFirst xs = h <> t
+  where h = T.toLower $ T.head xs `cons` T.empty
+        t = T.tail xs  
 
-playerUrl :: MorpheusConfig -> String
-playerUrl (MorpheusConfig addr port) = "http://" ++ addr ++ ":" ++ (show port)
+(</>) :: Text -> Text -> Text
+a </> b = a <> "/" <> b
 
-getUrl :: MorpheusConfig -> Command -> String
-getUrl c (Navigation cmd) = (playerUrl c) </> "navigation" </> ((\(x:xs) -> toLower x : xs) $ show cmd)
-getUrl c (Playback cmd) = (playerUrl c) </> "playback" </> ((\(x:xs) -> toLower x : xs) $ show cmd)
+
+playerUrl :: MorpheusConfig -> Text
+playerUrl (MorpheusConfig addr port _) = "http://" <> addr <> ":" <> (pack $ show port)
+
+getUrl :: MorpheusConfig -> Command -> Text
+getUrl c (Navigation cmd) = (playerUrl c) </> "navigation" </> (lowerFirst $ pack $ show cmd)
+getUrl c (Playback cmd) = (playerUrl c) </> "playback" </> (lowerFirst $ pack $ show cmd)
 getUrl c (JSONRPC rpc) = (playerUrl c) </> "jsonrpc"
 
 runCommand :: MorpheusConfig -> Command -> IO Bool
 runCommand c cmd@(JSONRPC rpc) = do
-  initialRequest <- parseRequest (getUrl c cmd)
+  let url = getUrl c cmd
+  if playerDebug c then T.putStrLn $ "Running command with url: " <> url
+                   else return ()
+  initialRequest <- parseRequest $ unpack url
   let request = initialRequest { method = "POST"
                                , requestBody = RequestBodyLBS $ encode rpc
                                }
   response <- httpLbs request =<< newManager defaultManagerSettings
   return $ 200 == (statusCode $ responseStatus response)
 runCommand c cmd = do
-  response <- httpNoBody =<< parseRequest (getUrl c cmd)
+  let url = getUrl c cmd
+  if playerDebug c then T.putStrLn $ "Running command with url: " <> url
+                   else return ()
+  response <- httpNoBody =<< (parseRequest $ unpack url)
   return $ 200 == (statusCode $ responseStatus response)
 
 moveRight c = runCommand c (Navigation MoveRight)
@@ -87,23 +104,23 @@ custom c meth par = runCommand c (JSONRPC (JSONRequest { jsonMethod = meth
                                                        , jsonID = 1
                                                        }))
 
-contextMenu c = custom c "Input.ExecuteAction" $ object ["action" .= "contextmenu"]
-fullscreen c = custom c "Input.ExecuteAction" $ object ["action" .= "fullscreen"]
+contextMenu c = custom c "Input.ExecuteAction" $ object [("action", "contextmenu")]
+fullscreen c = custom c "Input.ExecuteAction" $ object [("action", "fullscreen")]
 
-settings c = custom c "GUI.ActivateWindow" $ object ["window" .= "settings"]
+settings c = custom c "GUI.ActivateWindow" $ object [("window", "settings")]
 
-fastForward c   = custom c "Input.ExecuteAction" $ object ["action" .= "fastforward"]
-rewind c        = custom c "Input.ExecuteAction" $ object ["action" .= "rewind"]
-nextSubtitle c  = custom c "Input.ExecuteAction" $ object ["action" .= "nextsubtitle"]
-showSubtitles c = custom c "Input.ExecuteAction" $ object ["action" .= "showsubtitles"]
-audioNextLanguage c = custom c "Input.ExecuteAction" $ object ["action" .= "audionextlanguage"]
+fastForward c   = custom c "Input.ExecuteAction" $ object [("action", "fastforward")]
+rewind c        = custom c "Input.ExecuteAction" $ object [("action", "rewind")]
+nextSubtitle c  = custom c "Input.ExecuteAction" $ object [("action", "nextsubtitle")]
+showSubtitles c = custom c "Input.ExecuteAction" $ object [("action", "showsubtitles")]
+audioNextLanguage c = custom c "Input.ExecuteAction" $ object [("action", "audionextlanguage")]
 
-mute c = custom c "Application.SetMute" $ object ["mute" .= "toggle"]
-volumeUp c = custom c "Application.SetVolume" $ object ["volume" .= "increment"]
-volumeDown c = custom c "Application.SetVolume" $ object ["volume" .= "decrement"]
+mute c = custom c "Application.SetMute" $ object [("mute", "toggle")]
+volumeUp c = custom c "Application.SetVolume" $ object [("volume", "increment")]
+volumeDown c = custom c "Application.SetVolume" $ object [("volume", "decrement")]
 
-aspectRatio c = custom c "Input.ExecuteAction" $ object ["action" .= "aspectratio"]
-info c = custom c "Input.ExecuteAction" $ object ["action" .= "info"]
+aspectRatio c = custom c "Input.ExecuteAction" $ object [("action", "aspectratio")]
+info c = custom c "Input.ExecuteAction" $ object [("action", "info")]
 
 showNotification :: MorpheusConfig -> String -> String -> Int -> IO Bool
 showNotification c title message displayTime = 
