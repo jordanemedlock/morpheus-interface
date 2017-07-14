@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Morpheus where
 
 
@@ -9,6 +10,7 @@ import           Network.HTTP.Types.Status (statusCode)
 import           Data.Text as T
 import           Data.Text.IO as T
 import           Data.Monoid
+import           Control.Exception
 
 data MorpheusConfig = MorpheusConfig { playerAddress :: Text
                                      , playerPort :: Int
@@ -61,8 +63,14 @@ getUrl c (Navigation cmd) = (playerUrl c) </> "navigation" </> (lowerFirst $ pac
 getUrl c (Playback cmd) = (playerUrl c) </> "playback" </> (lowerFirst $ pack $ show cmd)
 getUrl c (JSONRPC rpc) = (playerUrl c) </> "jsonrpc"
 
+
 runCommand :: MorpheusConfig -> Command -> IO Bool
-runCommand c cmd@(JSONRPC rpc) = do
+runCommand c cmd = catch (callMorpheus c cmd) (if playerDebug c then handle else const (return False))
+  where handle (ex :: SomeException) = (T.putStrLn $ "Morpheus not connected at url: " <> (getUrl c cmd) <> " with exception: " <> (pack $ show ex)) >> return False
+  
+
+callMorpheus :: MorpheusConfig -> Command -> IO Bool
+callMorpheus c cmd@(JSONRPC rpc) = do
   let url = getUrl c cmd
   if playerDebug c then T.putStrLn $ "Running command with url: " <> url
                    else return ()
@@ -72,7 +80,7 @@ runCommand c cmd@(JSONRPC rpc) = do
                                }
   response <- httpLbs request =<< newManager defaultManagerSettings
   return $ 200 == (statusCode $ responseStatus response)
-runCommand c cmd = do
+callMorpheus c cmd = do
   let url = getUrl c cmd
   if playerDebug c then T.putStrLn $ "Running command with url: " <> url
                    else return ()
