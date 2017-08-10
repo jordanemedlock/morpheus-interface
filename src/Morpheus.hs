@@ -59,8 +59,8 @@ playerUrl :: MorpheusConfig -> Text
 playerUrl (MorpheusConfig addr port _) = "http://" <> addr <> ":" <> (pack $ show port)
 
 getUrl :: MorpheusConfig -> Command -> Text
-getUrl c (Navigation cmd) = (playerUrl c) </> "navigation" </> (lowerFirst $ pack $ show cmd)
-getUrl c (Playback cmd) = (playerUrl c) </> "playback" </> (lowerFirst $ pack $ show cmd)
+getUrl c (Navigation cmd) = (playerUrl c) </> "player" </> "navigation" </> (lowerFirst $ pack $ show cmd)
+getUrl c (Playback cmd) = (playerUrl c) </> "player" </> "playback" </> (lowerFirst $ pack $ show cmd)
 getUrl c (JSONRPC rpc) = (playerUrl c) </> "jsonrpc"
 
 
@@ -79,12 +79,14 @@ callMorpheus c cmd@(JSONRPC rpc) = do
                                , requestBody = RequestBodyLBS $ encode rpc
                                }
   response <- httpLbs request =<< newManager defaultManagerSettings
+  if playerDebug c then print response else return ()
   return $ 200 == (statusCode $ responseStatus response)
 callMorpheus c cmd = do
   let url = getUrl c cmd
   if playerDebug c then T.putStrLn $ "Running command with url: " <> url
                    else return ()
   response <- httpNoBody =<< (parseRequest $ unpack url)
+  if playerDebug c then print response else return ()
   return $ 200 == (statusCode $ responseStatus response)
 
 moveRight c = runCommand c (Navigation MoveRight)
