@@ -61,8 +61,8 @@ playerUrl :: MorpheusConfig -> Text
 playerUrl (MorpheusConfig addr port _) = "http://" <> addr <> ":" <> pack (show port)
 
 getUrl :: MorpheusConfig -> Command -> Text
-getUrl c (Navigation cmd) = playerUrl c </> "navigation" </> lowerFirst (pack $ show cmd)
-getUrl c (Playback cmd) = playerUrl c </> "playback" </> lowerFirst (pack $ show cmd)
+getUrl c (Navigation cmd) = playerUrl c </> "player" </> "navigation" </> lowerFirst (pack $ show cmd)
+getUrl c (Playback cmd) = playerUrl c </> "player" </> "playback" </> lowerFirst (pack $ show cmd)
 getUrl c (JSONRPC rpc) = playerUrl c </> "jsonrpc"
 
 getRequestBody :: Command -> RequestBody
@@ -71,7 +71,7 @@ getRequestBody _             = ""
 
 getRequestMethod :: (IsString a) => Command -> a
 getRequestMethod (JSONRPC _) = "POST"
-getRequestMethod _           = "POST  "
+getRequestMethod _           = "POST"
 
 runCommand :: MorpheusConfig -> Command -> IO Bool
 runCommand c cmd = catch (callMorpheus c cmd) (if playerDebug c then handle else const (return False))
@@ -83,7 +83,7 @@ callMorpheus c cmd = do
   let url = getUrl c cmd
   when (playerDebug c) $ T.putStrLn ("Running command with url: " <> url)
   initialRequest <- parseRequest $ unpack url
-  let request = initialRequest { method = getRequestMethod cmd
+  let request = initialRequest { method = "POST"
                                , requestBody = getRequestBody cmd
                                }
   response <- httpLbs request =<< newManager defaultManagerSettings
