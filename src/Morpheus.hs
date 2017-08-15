@@ -1,20 +1,22 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Morpheus where
 
 
-import           Network.HTTP.Simple (httpNoBody)
-import           Data.Aeson
-import           Network.HTTP.Client hiding (httpNoBody)
-import           Network.HTTP.Types.Status (statusCode)
-import           Data.Text as T
-import           Data.Text.IO as T
-import           Data.Monoid
 import           Control.Exception
+import           Control.Monad
+import           Data.Aeson
+import           Data.Monoid
+import           Data.String
+import           Data.Text                 as T
+import           Data.Text.IO              as T
+import           Network.HTTP.Client       hiding (httpNoBody)
+import           Network.HTTP.Simple       (httpNoBody)
+import           Network.HTTP.Types.Status (statusCode)
 
 data MorpheusConfig = MorpheusConfig { playerAddress :: Text
-                                     , playerPort :: Int
-                                     , playerDebug :: Bool
+                                     , playerPort    :: Int
+                                     , playerDebug   :: Bool
                                      } deriving Show
 
 defaultConfig = MorpheusConfig "localhost" 3005 True
@@ -25,67 +27,68 @@ data Command  = Navigation { navigationCommand :: NavigationCommand }
               deriving Show
 
 data NavigationCommand = MoveRight | MoveLeft | MoveDown | MoveUp | Select | Back
-                       | Home | NextLetter | PreviousLetter | ToggleOSD 
+                       | Home | NextLetter | PreviousLetter | ToggleOSD
                        deriving Show
 
-data PlaybackCommand = Pause | Play | SkipNext | SkipPrevious | Stop | StepBack 
-                     | StepForward 
+data PlaybackCommand = Pause | Play | SkipNext | SkipPrevious | Stop | StepBack
+                     | StepForward
                      deriving Show
 
 data JSONRequest = JSONRequest { jsonMethod :: String
-                               , jsonRPC :: String
+                               , jsonRPC    :: String
                                , jsonParams :: Value
-                               , jsonID :: Int
+                               , jsonID     :: Int
                                } deriving Show
 
 instance ToJSON JSONRequest where
-  toJSON (JSONRequest method rpc params id) = 
+  toJSON (JSONRequest method rpc params id) =
     object [ "method" .= method
            , "jsonrpc" .= rpc
            , "params" .= params
            , "id" .= id
            ]
-           
+
 lowerFirst :: Text -> Text
 lowerFirst xs = h <> t
   where h = T.toLower $ T.head xs `cons` T.empty
-        t = T.tail xs  
+        t = T.tail xs
 
 (</>) :: Text -> Text -> Text
 a </> b = a <> "/" <> b
 
 
 playerUrl :: MorpheusConfig -> Text
-playerUrl (MorpheusConfig addr port _) = "http://" <> addr <> ":" <> (pack $ show port)
+playerUrl (MorpheusConfig addr port _) = "http://" <> addr <> ":" <> pack (show port)
 
 getUrl :: MorpheusConfig -> Command -> Text
-getUrl c (Navigation cmd) = (playerUrl c) </> "navigation" </> (lowerFirst $ pack $ show cmd)
-getUrl c (Playback cmd) = (playerUrl c) </> "playback" </> (lowerFirst $ pack $ show cmd)
-getUrl c (JSONRPC rpc) = (playerUrl c) </> "jsonrpc"
+getUrl c (Navigation cmd) = playerUrl c </> "navigation" </> lowerFirst (pack $ show cmd)
+getUrl c (Playback cmd) = playerUrl c </> "playback" </> lowerFirst (pack $ show cmd)
+getUrl c (JSONRPC rpc) = playerUrl c </> "jsonrpc"
 
+getRequestBody :: Command -> RequestBody
+getRequestBody (JSONRPC rpc) = RequestBodyLBS $ encode rpc
+getRequestBody _             = ""
+
+getRequestMethod :: (IsString a) => Command -> a
+getRequestMethod (JSONRPC _) = "POST"
+getRequestMethod _           = "POST"
 
 runCommand :: MorpheusConfig -> Command -> IO Bool
 runCommand c cmd = catch (callMorpheus c cmd) (if playerDebug c then handle else const (return False))
-  where handle (ex :: SomeException) = (T.putStrLn $ "Morpheus not connected at url: " <> (getUrl c cmd) <> " with exception: " <> (pack $ show ex)) >> return False
-  
+  where handle (ex :: SomeException) = T.putStrLn ("Morpheus not connected at url: " <> getUrl c cmd <> " with exception: " <> pack (show ex)) >> return False
+
 
 callMorpheus :: MorpheusConfig -> Command -> IO Bool
-callMorpheus c cmd@(JSONRPC rpc) = do
-  let url = getUrl c cmd
-  if playerDebug c then T.putStrLn $ "Running command with url: " <> url
-                   else return ()
-  initialRequest <- parseRequest $ unpack url
-  let request = initialRequest { method = "POST"
-                               , requestBody = RequestBodyLBS $ encode rpc
-                               }
-  response <- httpLbs request =<< newManager defaultManagerSettings
-  return $ 200 == (statusCode $ responseStatus response)
 callMorpheus c cmd = do
   let url = getUrl c cmd
-  if playerDebug c then T.putStrLn $ "Running command with url: " <> url
-                   else return ()
-  response <- httpNoBody =<< (parseRequest $ unpack url)
-  return $ 200 == (statusCode $ responseStatus response)
+  when (playerDebug c) $ T.putStrLn ("Running command with url: " <> url)
+  initialRequest <- parseRequest $ unpack url
+  let request = initialRequest { method = getRequestMethod cmd
+                               , requestBody = getRequestBody cmd
+                               }
+  response <- httpLbs request =<< newManager defaultManagerSettings
+  when (playerDebug c) $ print response
+  return $ 200 == statusCode (responseStatus response)
 
 moveRight c = runCommand c (Navigation MoveRight)
 moveLeft c  = runCommand c (Navigation MoveLeft)
@@ -106,11 +109,11 @@ stop c          = runCommand c (Playback Stop)
 stepBack c      = runCommand c (Playback StepBack)
 stepForward c   = runCommand c (Playback StepForward)
 
-custom c meth par = runCommand c (JSONRPC (JSONRequest { jsonMethod = meth
-                                                       , jsonRPC = "2.0"
-                                                       , jsonParams = par
-                                                       , jsonID = 1
-                                                       }))
+custom c meth par = runCommand c (JSONRPC JSONRequest { jsonMethod = meth
+                                                      , jsonRPC = "2.0"
+                                                      , jsonParams = par
+                                                      , jsonID = 1
+                                                      })
 
 contextMenu c = custom c "Input.ExecuteAction" $ object [("action", "contextmenu")]
 fullscreen c = custom c "Input.ExecuteAction" $ object [("action", "fullscreen")]
@@ -131,10 +134,8 @@ aspectRatio c = custom c "Input.ExecuteAction" $ object [("action", "aspectratio
 info c = custom c "Input.ExecuteAction" $ object [("action", "info")]
 
 showNotification :: MorpheusConfig -> String -> String -> Int -> IO Bool
-showNotification c title message displayTime = 
+showNotification c title message displayTime =
   custom c "GUI.ShowNotification" $ object [ "title" .= title
                                            , "message" .= message
                                            , "displaytime" .= displayTime
                                            ]
-
-
