@@ -71,7 +71,7 @@ getRequestBody _             = ""
 
 getRequestMethod :: (IsString a) => Command -> a
 getRequestMethod (JSONRPC _) = "POST"
-getRequestMethod _           = "POST"
+getRequestMethod _           = "POST  "
 
 runCommand :: MorpheusConfig -> Command -> IO Bool
 runCommand c cmd = catch (callMorpheus c cmd) (if playerDebug c then handle else const (return False))
