@@ -79,7 +79,7 @@ runCommand c cmd = catch (callMorpheus c cmd) (if playerDebug c then handle else
 
 
 callMorpheus :: MorpheusConfig -> Command -> IO Bool
-callMorpheus c cmd = do
+callMorpheus c cmd = flip catch (\(x :: SomeException) -> return False) $ do
   let url = getUrl c cmd
   when (playerDebug c) $ T.putStrLn ("Running command with url: " <> url)
   initialRequest <- parseRequest $ unpack url
