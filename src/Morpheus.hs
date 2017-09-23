@@ -6,12 +6,15 @@ module Morpheus where
 import           Control.Exception
 import           Control.Monad
 import           Data.Aeson
+import           Data.Aeson.Types
+import qualified Data.HashMap.Lazy         as H
 import           Data.Monoid
 import           Data.String
 import           Data.Text                 as T
 import           Data.Text.IO              as T
 import           Network.HTTP.Client       hiding (httpNoBody)
-import           Network.HTTP.Simple       (httpNoBody)
+import           Network.HTTP.Simple       (getResponseBody, httpJSON,
+                                            httpNoBody)
 import           Network.HTTP.Types.Status (statusCode)
 
 data MorpheusConfig = MorpheusConfig { playerAddress :: Text
@@ -79,7 +82,7 @@ runCommand c cmd = catch (callMorpheus c cmd) (if playerDebug c then handle else
 
 
 callMorpheus :: MorpheusConfig -> Command -> IO Bool
-callMorpheus c cmd = flip catch (\(x :: SomeException) -> return False) $ do
+callMorpheus c cmd = handle (\(x :: SomeException) -> return False) $ do
   let url = getUrl c cmd
   when (playerDebug c) $ T.putStrLn ("Running command with url: " <> url)
   initialRequest <- parseRequest $ unpack url
@@ -139,3 +142,40 @@ showNotification c title message displayTime =
                                            , "message" .= message
                                            , "displaytime" .= displayTime
                                            ]
+
+getJSONResult :: (FromJSON a) => MorpheusConfig -> Command -> IO a
+getJSONResult c cmd = do
+  let url = getUrl c cmd
+  when (playerDebug c) $ T.putStrLn ("Running command with url: " <> url)
+  initialRequest <- parseRequest $ unpack url
+  let request = initialRequest { method = "POST"
+                               , requestBody = getRequestBody cmd
+                               }
+  response <- httpJSON request
+  return $ getResponseBody response
+
+getRPCConfiguration :: MorpheusConfig -> IO Object
+getRPCConfiguration c = do
+  let command = JSONRPC   JSONRequest { jsonMethod = "JSONRPC.GetConfiguration"
+                                      , jsonParams = object []
+                                      , jsonRPC = "2.0"
+                                      , jsonID = 1
+                                      }
+  getJSONResult c command
+
+
+getAppProperties :: MorpheusConfig -> [String] -> IO (Maybe Object)
+getAppProperties c props = do
+  let command = JSONRPC   JSONRequest { jsonMethod = "Application.GetProperties"
+                                      , jsonParams = object ["properties" .= toJSON props]
+                                      , jsonRPC = "2.0"
+                                      , jsonID = 1
+                                      }
+  obj <- getJSONResult c command
+  let res = parseMaybe (.: "result") obj
+  return res
+
+getVolume :: MorpheusConfig -> IO (Maybe Double)
+getVolume c = do
+  res <- getAppProperties c ["volume"]
+  return $ parseMaybe (.: "volume") =<< res
