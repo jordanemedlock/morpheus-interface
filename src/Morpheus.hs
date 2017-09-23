@@ -132,6 +132,8 @@ audioNextLanguage c = custom c "Input.ExecuteAction" $ object [("action", "audio
 mute c = custom c "Application.SetMute" $ object [("mute", "toggle")]
 volumeUp c = custom c "Application.SetVolume" $ object [("volume", "increment")]
 volumeDown c = custom c "Application.SetVolume" $ object [("volume", "decrement")]
+setVolume :: MorpheusConfig -> Int -> IO Bool
+setVolume c v = custom c "Application.SetVolume" $ object [("volume", toJSON v)]
 
 aspectRatio c = custom c "Input.ExecuteAction" $ object [("action", "aspectratio")]
 info c = custom c "Input.ExecuteAction" $ object [("action", "info")]
